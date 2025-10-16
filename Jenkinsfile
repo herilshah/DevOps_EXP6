@@ -2,12 +2,20 @@ pipeline {
     agent any
 
     environment {
-        PATH = "/opt/homebrew/bin:${env.PATH}"  // Ensures Jenkins can find node & npm
-        DOCKERHUB_CREDENTIALS = 'dockerhub'   // ID of your Docker Hub credentials in Jenkins
-        DOCKERHUB_USERNAME = 'herilshah'      // Your Docker Hub username
+        PATH = "/opt/homebrew/bin:/usr/local/bin:${env.PATH}"  // Node & Docker
+        DOCKERHUB_CREDENTIALS = 'dockerhub'                  // Jenkins Docker Hub credentials ID
+        DOCKERHUB_USERNAME = 'herilshah'                     // Your Docker Hub username
     }
 
     stages {
+        stage('Check Tools') {
+            steps {
+                sh 'node -v'
+                sh 'npm -v'
+                sh 'docker --version'
+            }
+        }
+
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -44,8 +52,8 @@ pipeline {
 
         stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "$DOCKERHUB_CREDENTIALS", 
-                                                  usernameVariable: 'DOCKER_USER', 
+                withCredentials([usernamePassword(credentialsId: "$DOCKERHUB_CREDENTIALS",
+                                                  usernameVariable: 'DOCKER_USER',
                                                   passwordVariable: 'DOCKER_PASS')]) {
                     sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
                     sh 'docker push $DOCKERHUB_USERNAME/user-service'
@@ -56,7 +64,7 @@ pipeline {
 
         stage('Deploy Containers Locally') {
             steps {
-                // Stop & remove any previous containers
+                // Stop & remove any existing containers
                 sh 'docker stop user-service || true'
                 sh 'docker rm user-service || true'
                 sh 'docker stop order-service || true'
@@ -74,7 +82,7 @@ pipeline {
             echo 'Pipeline completed successfully! Services are running on ports 5001 & 5002.'
         }
         failure {
-            echo 'Pipeline failed! Check the console output for errors.'
+            echo 'Pipeline failed! Check console output for errors.'
         }
     }
 }
