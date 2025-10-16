@@ -56,3 +56,4 @@ jobs:
         run: |
           docker build -t $DOCKER_USERNAME/order-service:latest ./order-service
           docker push $DOCKER_USERNAME/order-service:latest
+#Done
