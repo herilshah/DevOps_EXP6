@@ -1,60 +1,80 @@
 pipeline {
-  agent any
-  environment {
-    USER_IMAGE = "herilshah/user-service"
-    ORDER_IMAGE = "herilshah/order-service"
-    // Use the credential ID you added in Jenkins (username/password)
-    DOCKER_CREDENTIALS = "dockerhub"
-  }
-  stages {
-    stage('Clone') {
-      steps {
-        echo "Assumes Jenkins job checks out the repository (multibranch or pipeline)"
-        checkout scm
-      }
+    agent any
+
+    environment {
+        PATH = "/opt/homebrew/bin:${env.PATH}"  // Ensures Jenkins can find node & npm
+        DOCKERHUB_CREDENTIALS = 'dockerhub'   // ID of your Docker Hub credentials in Jenkins
+        DOCKERHUB_USERNAME = 'herilshah'      // Your Docker Hub username
     }
-    stage('Build Services') {
-      steps {
-        dir('user-service') {
-          sh 'npm install --silent'
-          sh 'npm test || true'
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/herilshah/DevOps_EXP6.git',
+                    credentialsId: 'github'  // your GitHub credentials ID
+            }
         }
-        dir('order-service') {
-          sh 'npm install --silent'
-          sh 'npm test || true'
+
+        stage('Build Services') {
+            parallel {
+                stage('Build User Service') {
+                    steps {
+                        dir('user-service') {
+                            sh '/opt/homebrew/bin/npm install --silent'
+                        }
+                    }
+                }
+                stage('Build Order Service') {
+                    steps {
+                        dir('order-service') {
+                            sh '/opt/homebrew/bin/npm install --silent'
+                        }
+                    }
+                }
+            }
         }
-      }
-    }
-    stage('Build Docker Images') {
-      steps {
-        script {
-          sh 'docker build -t ${USER_IMAGE}:latest ./user-service'
-          sh 'docker build -t ${ORDER_IMAGE}:latest ./order-service'
+
+        stage('Build Docker Images') {
+            steps {
+                sh 'docker build -t $DOCKERHUB_USERNAME/user-service ./user-service'
+                sh 'docker build -t $DOCKERHUB_USERNAME/order-service ./order-service'
+            }
         }
-      }
-    }
-    stage('Docker Login & Push') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: env.DOCKER_CREDENTIALS, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
-          sh 'docker push ${USER_IMAGE}:latest'
-          sh 'docker push ${ORDER_IMAGE}:latest'
+
+        stage('Docker Login & Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "$DOCKERHUB_CREDENTIALS", 
+                                                  usernameVariable: 'DOCKER_USER', 
+                                                  passwordVariable: 'DOCKER_PASS')]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh 'docker push $DOCKERHUB_USERNAME/user-service'
+                    sh 'docker push $DOCKERHUB_USERNAME/order-service'
+                }
+            }
         }
-      }
+
+        stage('Deploy Containers Locally') {
+            steps {
+                // Stop & remove any previous containers
+                sh 'docker stop user-service || true'
+                sh 'docker rm user-service || true'
+                sh 'docker stop order-service || true'
+                sh 'docker rm order-service || true'
+
+                // Run containers
+                sh 'docker run -d --name user-service -p 5001:5001 $DOCKERHUB_USERNAME/user-service'
+                sh 'docker run -d --name order-service -p 5002:5002 $DOCKERHUB_USERNAME/order-service'
+            }
+        }
     }
-    stage('Deploy (local)') {
-      steps {
-        echo "Stops any existing containers and runs new ones (requires Docker on Jenkins machine)"
-        sh 'docker rm -f user-service || true'
-        sh 'docker rm -f order-service || true'
-        sh 'docker run -d --name user-service -p 5001:5001 ${USER_IMAGE}:latest'
-        sh 'docker run -d --name order-service -p 5002:5002 ${ORDER_IMAGE}:latest'
-      }
+
+    post {
+        success {
+            echo 'Pipeline completed successfully! Services are running on ports 5001 & 5002.'
+        }
+        failure {
+            echo 'Pipeline failed! Check the console output for errors.'
+        }
     }
-  }
-  post {
-    always {
-      echo "Pipeline finished"
-    }
-  }
 }
